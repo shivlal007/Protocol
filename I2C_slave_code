@@ -1,0 +1,178 @@
+`timescale 1ns / 1ps
+
+module I2C_S2(
+
+
+ input scl,
+ input rst,
+ input newd_s,
+ output reg wr,
+ output reg [7:0] r_data,
+ output reg [6:0] r_addr, /////8-bit  7-bit : addr 1-bit : mode
+   
+ input sda_i,  
+ output reg sda_t,
+ output reg sda_o,
+ 
+ output reg [7:0] rdata,
+ output reg done
+ );
+  
+ //reg x,x2,x3; 
+ reg donet; 
+ reg y = 1'b0;
+ reg [7:0] r_datat; 
+ reg [7:0] addrt;
+ reg [3:0] state,nstate;
+ reg sclk_ref = 0;
+ integer count = 0;
+ integer i = 0;
+ 
+ parameter slave_address = 7'b1000101;
+ parameter idle = 0, check_wr = 1, wstart = 2, wsend_addr = 3, waddr_ack = 4, 
+                wsend_data = 5, wdata_ack = 6, wstop = 7, rsend_addr = 8, 
+                raddr_ack = 9, rsend_data = 10,
+                rdata_ack = 11, rstop = 12 ;
+  
+  always@(*)
+    begin
+        case(state)
+           idle : begin //state 0
+                    if(newd_s == 1'b1)
+                       done <= 1'b0;
+                       sda_t <= 1'b1; //sda_i working to receive start bit
+                            if (y == 0 && sda_i == 1 && scl == 1)
+                                state  <= wstart;
+                            else 
+                                state <= idle;         
+                  end
+         
+           wstart: begin // state 2
+                     sda_t  <= 1'b1; //sda_i working to receive start bit
+                      if (y ==0 && sda_i == 0 && scl ==1) 
+                         state <= check_wr;
+                      else 
+                         state <= wstart;
+                    end
+           //default : state <= idle;          
+        //endcase 
+        //end                 
+    
+  //always@(*)
+//begin
+        //case(state)
+           check_wr:  begin// state 1 
+                        sda_t  <= 1'b1;   //sda_i working in recive wead write bit
+                        y = 1'bZ;
+                           if(sda_i == 1'b1) 
+                             begin
+                                nstate <= wsend_addr;
+                                wr <= 1'b1;     // write data
+                                i <= 1;
+                             end
+                            else 
+                             begin
+                                nstate <= wsend_addr;
+                                wr <= 1'b0;    // read data
+                                i <= 1;
+                             end
+                      end
+            
+            wsend_addr :begin  // state 3 
+                          sda_t  <= 1'b1;   //sda_i working in recive addreess        
+                            if(i <= 7) 
+                              begin
+                                addrt[i] <= sda_i;
+                                nstate <= wsend_addr;
+                              end
+                            else
+                              begin
+                                i <= 0;
+                                nstate <= waddr_ack;
+                                wr <= addrt[0];
+                                r_addr <= addrt[7:1];
+                              end 
+                        end  
+                              
+            waddr_ack : begin//state 4
+                            if(r_addr == slave_address) 
+                                begin
+                                    sda_t  <= 1'b0; //sda_o working in send ack bit for address
+                                    sda_o <= 1'b0;
+                                    nstate <= wsend_data;
+                                 end
+                            else
+                               nstate <= waddr_ack;
+                        end
+           wsend_data : begin // state 5
+                            sda_t  <= 1'b1;   //sda_i working in recive data
+                                if(i <= 7) 
+                                begin
+                                    r_datat[i] <= sda_i; 
+                                    i <= i + 1;
+                                    sda_o <= 1'b1;
+                                end
+                            else 
+                                begin
+                                    i <= 0;
+                                    nstate <= wdata_ack;
+                                    r_data <= r_datat;
+                                    sda_t  <= 1'b0; //sda_o working in send ack bot for data
+                                    sda_o <= 1'b0;
+                                    y =1'b1;
+                                end
+                        end
+           wdata_ack : begin //STATE 6
+                        if(y == 1 && sda_i == 1'b0 && scl == 1'b1) 
+                            begin
+                                nstate <= wstop;
+                                sda_t  <= 1'b1; //sda_i working to receive stop bit
+                            end
+                         else 
+                            nstate <= wdata_ack;
+                        end
+         
+           wstop: begin//state 7
+                    if(y == 1 && sda_i == 1'b1 && scl == 1'b1)
+                        begin
+                        nstate <=  idle;
+                        sda_t  <= 1'b1; //sda_i working to receive stop bit
+                        done  <=  1'b1;
+                        end
+                    else
+                        nstate <= wstop;  
+                end
+           default : nstate <= idle;
+      endcase
+   end
+  
+  
+  
+  always@(posedge scl)
+    begin 
+    if(rst == 1'b1)
+         begin
+           state <= idle;
+           sda_t  <= 1'b1;   //sda_i working in dafault
+           sda_o <= 1'b1;
+           donet <= 1'b0;
+         end
+       else 
+           state <= nstate;
+    end
+           
+       
+  always@(posedge scl)
+         begin
+         if (state == wsend_addr)
+            if(i <= 7) 
+                i <= i + 1;
+         if (state == waddr_ack)
+            if(r_addr == slave_address)
+                i <= i + 1;
+         if (state == wsend_data)
+            if(i <= 7) 
+                i <= i + 1;
+          end
+    
+endmodule
